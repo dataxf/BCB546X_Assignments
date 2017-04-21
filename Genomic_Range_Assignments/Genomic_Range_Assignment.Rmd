@@ -1,0 +1,95 @@
+---
+title: "Genomic Range Assignments"
+output:
+  html_document: default
+  html_notebook: default
+---
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
+                      echo=TRUE, warning=FALSE, message=FALSE)
+```
+# Assignment: Find the number of variants within exons on a chromosome
+
+## Install packages
+source("http://bioconductor.org/biocLite.R")
+biocLite()
+biocLite("GenomicRanges")
+biocLite("GenomicFeatures")
+```{r}
+library(GenomicRanges)
+library(BiocInstaller)
+```
+
+## Install an annotation package for the house mouse (Mus musculus)
+
+biocLite("TxDb.Mmusculus.UCSC.mm10.ensGene")
+
+```{r}
+library(TxDb.Mmusculus.UCSC.mm10.ensGene)
+txdb <- TxDb.Mmusculus.UCSC.mm10.ensGene
+```
+
+
+## Import BED files using rtracklayer
+
+```{r}
+library(rtracklayer)
+dbsnp137 <- import('mm10_snp137_chr1_trunc.bed.gz')
+```
+rtracklayer has automatically detected the imported file type and has brought this in as a GRanges object.
+
+## Find all variants within exons on this mouse chromosome
+
+First, collapse all overlapping exons in the mouse TranscriptDb object we created earlier and create an object with only exons from chr1:
+
+```{r}
+collapsed_exons <- reduce(exons(txdb), ignore.strand=TRUE)
+chr1_collapsed_exons <- collapsed_exons[seqnames(collapsed_exons) == "chr1"]
+```
+
+Before extracting variants in exons, let's first inspect our variant file:
+
+```{r}
+summary(width(dbsnp137))
+```
+
+If a variant has a width of 0, we cannot find its overlap with exon ranges, so we must adjust its width to do this:
+
+```{r}
+dbsnp137_resized <- dbsnp137
+zw_i <- width(dbsnp137_resized) == 0
+dbsnp137_resized[zw_i] <- resize(dbsnp137_resized[zw_i], width=1)
+```
+
+Pull out those variants that overlap exons on chromosome 1 by creating a hits object:
+```{r}
+hits <- findOverlaps(dbsnp137_resized, chr1_collapsed_exons, 
+        ignore.strand=TRUE)
+```
+
+Determine the number of variants and the proportion of variants that are exonic
+
+```{r}
+length(unique(queryHits(hits)))
+length(unique(queryHits(hits)))/length(dbsnp137_resized)
+```
+
+
+Use the countOverlaps() function to find the number of variants per exon (note we have to reverse the order of the query since we're finding values per exon now)
+
+```{r}
+var_counts <- countOverlaps(chr1_collapsed_exons, dbsnp137_resized, ignore.strand=TRUE)
+```
+
+Append this to our GRanges object that includes exons
+
+```{r}
+chr1_collapsed_exons$num_vars <- var_counts
+```
+
+Write a file which includes the appended column for the number of #variants per exon
+
+```{r}
+write.csv(chr1_collapsed_exons, "chr1_collapsed_exons_num_vars.csv")
+```
+
